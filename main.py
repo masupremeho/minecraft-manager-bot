@@ -1,14 +1,18 @@
 import os
 import json
+import asyncio
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from dotenv import load_dotenv
+from mcstatus import JavaServer
 
-# 1. ALWAYS load environment variables FIRST
+# 1. Load environment variables FIRST
 load_dotenv()
 
 # 2. Import custom UI components
 from ui.components import ServerControlView
+from services.aws_service import get_ec2_status, stop_ec2_instance
+from services.ptero_service import send_ptero_power
 
 # --- CONFIGURATION & VALIDATION ---
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
@@ -46,7 +50,6 @@ async def check_user_permission(interaction: discord.Interaction) -> bool:
     allowed = data.get("allowed_users", [])
     owner = data.get("owner_id", BOT_OWNER_ID)
     
-    # Owner safeguard: Always allow the bot owner regardless of JSON file state
     if interaction.user.id == owner or interaction.user.id == BOT_OWNER_ID:
         return True
         
@@ -55,10 +58,53 @@ async def check_user_permission(interaction: discord.Interaction) -> bool:
         return False
     return True
 
+# --- AUTO-SHUTDOWN BACKGROUND MONITOR ---
+EMPTY_CHECKS = 0
+MAX_EMPTY_CHECKS = 3  # 3 checks x 5 mins = 15 mins of zero players -> shutdown
+
+@tasks.loop(minutes=5)
+async def auto_shutdown_monitor():
+    global EMPTY_CHECKS
+    aws_status = get_ec2_status()
+    
+    # Only monitor if AWS is currently running
+    if aws_status != "RUNNING":
+        EMPTY_CHECKS = 0
+        return
+
+    try:
+        server = JavaServer.lookup(SERVER_ADDRESS)
+        status = server.status()
+        players_online = status.players.online
+
+        if players_online == 0:
+            EMPTY_CHECKS += 1
+            print(f"ℹ️ Auto-Shutdown Monitor: 0 players online ({EMPTY_CHECKS}/{MAX_EMPTY_CHECKS}).")
+            
+            if EMPTY_CHECKS >= MAX_EMPTY_CHECKS:
+                print("🛑 15 minutes of inactivity detected. Shutting down Minecraft & AWS...")
+                send_ptero_power("stop")
+                await asyncio.sleep(15)  # Allow world save
+                stop_ec2_instance()
+                EMPTY_CHECKS = 0
+        else:
+            EMPTY_CHECKS = 0
+            print(f"🎮 Auto-Shutdown Monitor: {players_online} players online.")
+    except Exception:
+        # If server is booting up or unreachable, don't trigger shutdown
+        pass
+
+@auto_shutdown_monitor.before_loop
+async def before_auto_shutdown():
+    await bot.wait_until_ready()
+
+# --- EVENTS & COMMANDS ---
 @bot.event
 async def on_ready():
     print(f"✅ Minecraft Manager logged in as {bot.user.name}")
     await bot.change_presence(activity=discord.Game(name=SERVER_ADDRESS))
+    if not auto_shutdown_monitor.is_running():
+        auto_shutdown_monitor.start()
 
 @bot.command(name="panel")
 async def send_panel(ctx):
@@ -72,10 +118,9 @@ async def send_panel(ctx):
     view = ServerControlView(check_user_permission)
     await ctx.send(embed=embed, view=view)
 
-# --- OWNER ONLY MANAGEMENT COMMANDS ---
+# --- OWNER ONLY COMMANDS ---
 @bot.command(name="allow")
 async def add_user(ctx, user: discord.User):
-    """Add a user to the allowed list (Owner only)."""
     data = load_data()
     owner = data.get("owner_id", BOT_OWNER_ID)
     if ctx.author.id != owner and ctx.author.id != BOT_OWNER_ID:
@@ -90,7 +135,6 @@ async def add_user(ctx, user: discord.User):
 
 @bot.command(name="deny")
 async def remove_user(ctx, user: discord.User):
-    """Remove a user from the allowed list (Owner only)."""
     data = load_data()
     owner = data.get("owner_id", BOT_OWNER_ID)
     if ctx.author.id != owner and ctx.author.id != BOT_OWNER_ID:
@@ -108,7 +152,6 @@ async def remove_user(ctx, user: discord.User):
 
 @bot.command(name="listusers")
 async def list_users(ctx):
-    """List all allowed users (Owner only)."""
     data = load_data()
     owner = data.get("owner_id", BOT_OWNER_ID)
     if ctx.author.id != owner and ctx.author.id != BOT_OWNER_ID:
