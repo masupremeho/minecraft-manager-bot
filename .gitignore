@@ -1,0 +1,11 @@
+# Private environment files
+.env
+
+# Dynamic user data
+allowed_users.json
+
+# Python caches and environments
+__pycache__/
+*.pyc
+venv/
+.DS_Store
