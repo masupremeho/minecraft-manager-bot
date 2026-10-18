@@ -60,7 +60,7 @@ async def check_user_permission(interaction: discord.Interaction) -> bool:
 
 # --- AUTO-SHUTDOWN BACKGROUND MONITOR ---
 EMPTY_CHECKS = 0
-MAX_EMPTY_CHECKS = 3  # 3 checks x 5 mins = 15 mins of zero players -> shutdown
+MAX_EMPTY_CHECKS = 4  # 3 checks x 5 mins = 15 mins of zero players -> shutdown
 
 @tasks.loop(minutes=5)
 async def auto_shutdown_monitor():
@@ -82,7 +82,7 @@ async def auto_shutdown_monitor():
             print(f"ℹ️ Auto-Shutdown Monitor: 0 players online ({EMPTY_CHECKS}/{MAX_EMPTY_CHECKS}).")
             
             if EMPTY_CHECKS >= MAX_EMPTY_CHECKS:
-                print("🛑 15 minutes of inactivity detected. Shutting down Minecraft & AWS...")
+                print("🛑 20 minutes of inactivity detected. Shutting down Minecraft & AWS...")
                 send_ptero_power("stop")
                 await asyncio.sleep(15)  # Allow world save
                 stop_ec2_instance()
@@ -103,6 +103,7 @@ async def before_auto_shutdown():
 async def on_ready():
     print(f"✅ Minecraft Manager logged in as {bot.user.name}")
     await bot.change_presence(activity=discord.Game(name=SERVER_ADDRESS))
+    bot.add_view(ServerControlView(check_user_permission))
     if not auto_shutdown_monitor.is_running():
         auto_shutdown_monitor.start()
 

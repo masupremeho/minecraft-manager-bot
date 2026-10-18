@@ -18,7 +18,7 @@ def get_ptero_headers():
 def get_ptero_status() -> str:
     if not PTERO_URL or not PTERO_SERVER_ID or not PTERO_API_KEY:
         return "CONFIG ERROR (Missing Keys)"
-    url = f"{PTERO_URL}/api/client/resources/servers/{PTERO_SERVER_ID}/resources"
+    url = f"{PTERO_URL}/api/client/servers/{PTERO_SERVER_ID}/resources"
     try:
         res = requests.get(url, headers=get_ptero_headers(), timeout=5)
         if res.status_code == 200:
@@ -30,7 +30,7 @@ def get_ptero_status() -> str:
 def send_ptero_power(signal: str):
     if not PTERO_URL or not PTERO_SERVER_ID or not PTERO_API_KEY:
         return False, "❌ Missing Pterodactyl configuration in .env."
-    url = f"{PTERO_URL}/api/client/resources/servers/{PTERO_SERVER_ID}/power"
+    url = f"{PTERO_URL}/api/client/servers/{PTERO_SERVER_ID}/power"
     try:
         res = requests.post(url, headers=get_ptero_headers(), json={"signal": signal}, timeout=5)
         if res.status_code == 204:
